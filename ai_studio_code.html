@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>OneAmerica Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --safe-top: env(safe-area-inset-top, 0px);
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+            --oa-blue: #002d72;
+            --oa-red: #e31837;
+        }
+        body { background-color: #f4f7f9; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; overflow: hidden; margin: 0; padding: 0; width: 100vw; }
+        #msgList::-webkit-scrollbar { width: 4px; }
+        #msgList::-webkit-scrollbar-thumb { background: #cbd5e0; border-radius: 10px; }
+        #chatApp, #gifModal, #emojiModal { display: none; }
+        .gif-grid, .emoji-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-height: 50vh; overflow-y: auto; padding: 10px; }
+        .emoji-grid { grid-template-columns: repeat(6, 1fr); font-size: 1.8rem; }
+        .gif-item { width: 100%; height: 90px; object-fit: cover; border-radius: 6px; cursor: pointer; background: #eee; }
+        .emoji-item { cursor: pointer; text-align: center; padding: 5px; }
+        
+        /* Audio Player Styling */
+        .audio-container { width: 100%; min-width: 200px; padding: 5px 0; }
+        audio { height: 40px; width: 100%; filter: saturate(0%) contrast(110%); }
+        
+        /* Corporate Styling */
+        header { padding-top: calc(var(--safe-top) + 12px) !important; background-color: var(--oa-blue); }
+        #inputBarContainer { padding-bottom: calc(var(--safe-bottom) + 12px) !important; background-color: #ffffff; border-top: 1px solid #e2e8f0; }
+        .oa-logo { width: 40px; height: 40px; background: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; padding: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+
+        /* Message Action Buttons */
+        .msg-actions { opacity: 0; transition: opacity 0.2s; }
+        .message-wrapper:hover .msg-actions { opacity: 1; }
+        .reply-preview { border-left: 3px solid var(--oa-blue); background: #f1f5f9; }
+
+        /* Toggle Switch Styling */
+        .switch { position: relative; display: inline-block; width: 34px; height: 20px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.2); transition: .4s; border-radius: 20px; }
+        .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--oa-red); }
+        input:checked + .slider:before { transform: translateX(14px); }
+
+        * { box-sizing: border-box; }
+    </style>
+</head>
+<body class="h-screen flex flex-col max-w-md mx-auto bg-white border-x shadow-2xl overflow-hidden">
+
+    <!-- PASSWORD LOCK -->
+    <div id="lockScreen" class="fixed inset-0 z-[100] bg-[#002d72] flex flex-col items-center justify-center p-6 text-white text-center">
+        <div class="oa-logo w-24 h-24 mb-6">
+            <svg viewBox="0 0 100 100" class="w-full h-full">
+                <path d="M35 75 L55 25 L65 25 L85 75" fill="none" stroke="#002d72" stroke-width="8" />
+                <path d="M25 70 Q40 65 55 70 T85 70" fill="none" stroke="#e31837" stroke-width="6" />
+                <path d="M30 55 Q45 50 60 55" fill="none" stroke="#e31837" stroke-width="6" />
+                <path d="M35 40 Q45 35 55 40" fill="none" stroke="#e31837" stroke-width="6" />
+            </svg>
+        </div>
+        <h2 class="text-2xl font-light mb-2 tracking-tight">OneAmerica Secure</h2>
+        <input type="password" id="passInput" placeholder="Access Code" class="w-full max-w-xs bg-white/10 border border-white/20 rounded-lg px-4 py-3 outline-none mb-4 text-center text-xl text-white placeholder-white/50">
+        <button onclick="checkPassword()" class="w-full max-w-xs bg-[#e31837] py-3 rounded-lg font-bold shadow-lg hover:bg-red-700 transition-all">Sign In</button>
+        <p id="errorMsg" class="text-red-300 mt-4 text-sm hidden font-bold">Invalid credentials.</p>
+    </div>
+
+    <!-- GIF MODAL -->
+    <div id="gifModal" class="fixed inset-0 z-[90] bg-black/90 p-4 flex flex-col">
+        <div class="bg-white rounded-t-xl p-4 flex gap-2">
+            <input type="text" id="gifSearchInput" placeholder="Search GIPHY..." class="flex-1 border rounded-full px-4 py-2 outline-none text-black bg-gray-100">
+            <button onclick="toggleGifModal()" class="text-gray-500 font-bold px-2">✕</button>
+        </div>
+        <div id="gifResults" class="bg-white rounded-b-xl p-2 gif-grid flex-1"></div>
+    </div>
+
+    <!-- EMOJI MODAL -->
+    <div id="emojiModal" class="fixed inset-0 z-[95] bg-black/80 p-6 flex flex-col justify-center">
+        <div class="bg-white rounded-xl p-2 shadow-2xl">
+            <div class="flex justify-between p-2 border-b mb-2">
+                <span class="font-bold text-gray-400 uppercase text-[10px]">Select Emoji</span>
+                <button onclick="toggleEmojiPicker()" class="text-gray-400">✕</button>
+            </div>
+            <div id="emojiGrid" class="emoji-grid"></div>
+        </div>
+    </div>
+
+    <!-- CHAT APP -->
+    <div id="chatApp" class="h-screen flex flex-col w-full overflow-hidden">
+        <header class="text-white p-4 pb-2 flex items-center justify-between gap-3 shadow-lg relative z-20">
+            <div class="flex items-center gap-3">
+                <div class="oa-logo">
+                    <svg viewBox="0 0 100 100" class="w-full h-full">
+                        <path d="M35 75 L55 25 L65 25 L85 75" fill="none" stroke="#002d72" stroke-width="10" />
+                        <path d="M25 70 Q40 65 55 70 T85 70" fill="none" stroke="#e31837" stroke-width="8" />
+                        <path d="M30 55 Q45 50 60 55" fill="none" stroke="#e31837" stroke-width="8" />
+                        <path d="M35 40 Q45 35 55 40" fill="none" stroke="#e31837" stroke-width="8" />
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="font-bold text-base leading-tight tracking-tight">OneAmerica</h1>
+                    <p id="onlineCount" class="text-[9px] text-blue-200 uppercase font-bold tracking-widest">Connecting...</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="flex flex-col items-center">
+                    <span class="text-[8px] uppercase font-bold opacity-60 mb-0.5">Alerts</span>
+                    <label class="switch">
+                        <input type="checkbox" id="notifToggle" onchange="toggleNotifications(this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <button onclick="wipeAndLogout()" class="bg-white/10 border border-white/20 text-[10px] px-3 py-1.5 rounded font-bold uppercase hover:bg-red-600 transition-colors">Wipe</button>
+            </div>
+        </header>
+
+        <div id="presencePage" class="bg-gray-50 text-gray-600 px-4 py-2 shadow-sm z-[15] border-b border-gray-200 block">
+            <ul id="userList" class="flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-bold uppercase tracking-tighter"></ul>
+        </div>
+
+        <div id="msgList" class="flex-1 overflow-y-auto px-6 py-4 space-y-6 bg-[#f8fafc]"></div>
+
+        <!-- INPUT BAR CONTAINER -->
+        <div id="inputBarContainer" class="w-full flex flex-col relative z-50">
+            <!-- REPLY PREVIEW -->
+            <div id="replyBar" class="hidden px-4 py-2 flex items-center justify-between bg-gray-100 border-t text-xs">
+                <div class="reply-preview px-2 py-1 overflow-hidden">
+                    <div id="replyUser" class="font-bold text-blue-800"></div>
+                    <div id="replyText" class="text-gray-500 truncate"></div>
+                </div>
+                <button onclick="cancelReply()" class="text-gray-400 font-bold px-2">✕</button>
+            </div>
+
+            <div id="inputBar" class="pt-3 px-4 flex items-center gap-2 pb-4">
+                <button onclick="toggleGifModal()" class="flex-shrink-0 p-2 bg-gray-100 rounded-lg text-[10px] font-bold text-gray-500 border">GIF</button>
+                <button onclick="document.getElementById('fileInput').click()" id="clipBtn" class="flex-shrink-0 p-2 hover:bg-gray-100 rounded-full text-xl grayscale">📎</button>
+                <input type="file" id="fileInput" class="hidden" onchange="uploadAnyFile(this.files[0])">
+                
+                <div class="flex-1 flex items-center bg-gray-50 rounded-lg border border-gray-200 px-3 py-1 min-w-0">
+                    <input type="text" id="msgInput" placeholder="Type a message..." class="flex-1 outline-none text-sm py-2 min-w-0 bg-transparent text-gray-700">
+                    <button onclick="toggleEmojiPicker()" class="p-1 text-xl flex-shrink-0 opacity-50">😀</button>
+                </div>
+
+                <button id="micBtn" onclick="handleMic()" class="flex-shrink-0 bg-gray-200 text-gray-600 w-10 h-10 flex items-center justify-center rounded-lg shadow-sm">🎤</button>
+                <button onclick="sendText()" class="flex-shrink-0 bg-[#002d72] text-white w-10 h-10 flex items-center justify-center rounded-lg shadow-md active:scale-95">
+                    <svg viewBox="0 0 24 24" class="w-5 h-5 fill-current"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SECRET = "durango";
+        const SB_URL = "https://cjyqfygudiuijmtzzzbh.supabase.co";
+        const SB_KEY = "sb_publishable_Iz5aJ-uoiMSd1c1fx6rwWA_Nb4p0RiZ";
+        const GIPHY_KEY = "NJOdOy12XPRPjco9lLazfpG6MHE3CwnG"; 
+        
+        const _supabase = supabase.createClient(SB_URL, SB_KEY);
+        const msgList = document.getElementById('msgList');
+        const msgInput = document.getElementById('msgInput');
+        const micBtn = document.getElementById('micBtn');
+        let user = localStorage.getItem('chat_user') || "";
+        let replyingTo = null;
+        let notificationsEnabled = localStorage.getItem('notif_enabled') === 'true';
+
+        // NOTIFICATIONS
+        function toggleNotifications(enabled) {
+            if (enabled) {
+                Notification.requestPermission().then(permission => {
+                    if (permission === "granted") {
+                        notificationsEnabled = true;
+                        localStorage.setItem('notif_enabled', 'true');
+                    } else {
+                        document.getElementById('notifToggle').checked = false;
+                        alert("Permission denied by browser.");
+                    }
+                });
+            } else {
+                notificationsEnabled = false;
+                localStorage.setItem('notif_enabled', 'false');
+            }
+        }
+
+        function showPushNotification(data) {
+            if (!notificationsEnabled || data.user === user || document.visibilityState === 'visible') return;
+            new Notification(`OneAmerica: ${data.user}`, {
+                body: data.text || "Sent a file/media",
+                icon: 'https://cdn-icons-png.flaticon.com/512/733/733585.png'
+            });
+        }
+
+        // EMOJI GRID
+        const emojiList = ['😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🤭','🤫','🤥','😶','😐','😑','😬','🙄','😯','😦','😧','😮','😲','😧','🥱','😴','🤤','😪','😵','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','👹','👺','🤡','👻','💀','☠️','👽','👾','🤖','💩'];
+        const emojiGrid = document.getElementById('emojiGrid');
+        emojiList.forEach(e => {
+            const span = document.createElement('span');
+            span.className = 'emoji-item';
+            span.innerText = e;
+            span.onclick = () => { msgInput.value += e; toggleEmojiPicker(); msgInput.focus(); };
+            emojiGrid.appendChild(span);
+        });
+        function toggleEmojiPicker() { 
+            const em = document.getElementById('emojiModal');
+            em.style.display = (em.style.display === 'flex') ? 'none' : 'flex'; 
+        }
+
+        // GIPHY
+        function toggleGifModal() { 
+            const gm = document.getElementById('gifModal');
+            gm.style.display = (gm.style.display === 'flex') ? 'none' : 'flex'; 
+            if(gm.style.display === 'flex') searchGifs('trending');
+        }
+        async function searchGifs(term) {
+            const resultsDiv = document.getElementById('gifResults');
+            try {
+                const endpoint = term === 'trending' ? 'trending' : 'search';
+                const res = await fetch(`https://api.giphy.com/v1/gifs/${endpoint}?api_key=${GIPHY_KEY}&q=${term}&limit=12&rating=g`);
+                const data = await res.json();
+                resultsDiv.innerHTML = data.data.map(g => `<img src="${g.images.fixed_height_small.url}" class="gif-item" onclick="sendGif('${g.images.fixed_height.url}')">`).join('');
+            } catch (err) { resultsDiv.innerHTML = 'Error'; }
+        }
+        document.getElementById('gifSearchInput').oninput = (e) => {
+            clearTimeout(window.gtimer);
+            window.gtimer = setTimeout(() => searchGifs(e.target.value || 'trending'), 500);
+        };
+        async function sendGif(url) {
+            await _supabase.from('messages').insert([{ user, type: 'image', url }]);
+            toggleGifModal();
+        }
+
+        // UPLOADS
+        async function uploadAnyFile(file, forcedType = null) {
+            if(!file || !user) return;
+            const clipBtn = document.getElementById('clipBtn');
+            clipBtn.innerHTML = '⏳';
+            const fileName = `${Date.now()}_file`;
+            const { error } = await _supabase.storage.from('uploads').upload(fileName, file);
+            if (error) { alert(error.message); clipBtn.innerHTML = '📎'; return; }
+            const { data } = _supabase.storage.from('uploads').getPublicUrl(fileName);
+            let type = forcedType || (file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'file');
+            await _supabase.from('messages').insert([{ user, type, url: data.publicUrl }]);
+            clipBtn.innerHTML = '📎';
+        }
+
+        let mediaRecorder;
+        let audioChunks = [];
+        async function handleMic() {
+            if (!mediaRecorder || mediaRecorder.state === "inactive") {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                    mediaRecorder.onstop = () => {
+                        uploadAnyFile(new Blob(audioChunks, { type: 'audio/mp3' }), 'audio');
+                        micBtn.classList.remove('bg-red-500', 'animate-pulse');
+                    };
+                    mediaRecorder.start();
+                    micBtn.classList.add('bg-red-500', 'animate-pulse');
+                } catch(e) { alert("Mic Permission Denied."); }
+            } else { mediaRecorder.stop(); }
+        }
+
+        async function sendText() {
+            const val = msgInput.value.trim();
+            if(!val || !user) return;
+            const payload = { user, text: val, type: 'text' };
+            if(replyingTo) {
+                payload.text = `[Replying to ${replyingTo.user}: ${replyingTo.text}] ${val}`;
+                cancelReply();
+            }
+            msgInput.value = '';
+            await _supabase.from('messages').insert([payload]);
+        }
+
+        function setReply(msgUser, msgText) {
+            replyingTo = { user: msgUser, text: msgText };
+            document.getElementById('replyBar').classList.remove('hidden');
+            document.getElementById('replyUser').innerText = msgUser;
+            document.getElementById('replyText').innerText = msgText;
+            msgInput.focus();
+        }
+
+        function cancelReply() {
+            replyingTo = null;
+            document.getElementById('replyBar').classList.add('hidden');
+        }
+
+        function checkPassword() {
+            if (document.getElementById('passInput').value === SECRET) {
+                localStorage.setItem('chat_unlocked', 'true');
+                startApp();
+            } else { document.getElementById('errorMsg').classList.remove('hidden'); }
+        }
+
+        function startApp() {
+            if(!user) {
+                user = prompt("Select Username:");
+                if(!user) user = "User" + Math.floor(Math.random() * 100);
+                localStorage.setItem('chat_user', user);
+            }
+            document.getElementById('lockScreen').style.display = 'none';
+            document.getElementById('chatApp').style.display = 'flex';
+            document.getElementById('notifToggle').checked = notificationsEnabled;
+            loadHistory();
+            initPresence();
+            initRealtime();
+        }
+
+        function initPresence() {
+            const channel = _supabase.channel('room1', { config: { presence: { key: user } } });
+            channel.on('presence', { event: 'sync' }, () => {
+                const state = channel.presenceState();
+                const count = Object.keys(state).length;
+                document.getElementById('onlineCount').innerText = `${count} ACTIVE NOW`;
+                document.getElementById('userList').innerHTML = Object.keys(state).map(u => 
+                    `<li class="flex items-center gap-1">
+                        <span class="w-1.5 h-1.5 bg-blue-600 rounded-full"></span> ${u}
+                    </li>`
+                ).join('');
+            }).subscribe(async (s) => { if (s === 'SUBSCRIBED') await channel.track({ online_at: new Date().toISOString() }); });
+        }
+
+        function renderMessage(data) {
+            const isMe = data.user === user;
+            const wrapper = document.createElement('div');
+            wrapper.className = `message-wrapper flex w-full mb-2 group ${isMe ? 'flex-row-reverse' : 'flex-row'}`;
+            
+            let innerContent = `<p class="text-sm leading-relaxed">${data.text || ''}</p>`;
+            if (data.type === 'image') innerContent = `<img src="${data.url}" class="rounded-lg max-w-full mt-1 border shadow-sm" onclick="window.open('${data.url}')">`;
+            if (data.type === 'video') innerContent = `<video src="${data.url}" controls class="rounded-lg max-w-full mt-1"></video>`;
+            if (data.type === 'audio') {
+                innerContent = `
+                    <div class="audio-container">
+                        <div class="text-[9px] font-bold uppercase opacity-50 mb-1 flex items-center">Voice Memo</div>
+                        <audio src="${data.url}" controls></audio>
+                    </div>
+                `;
+            }
+            if (data.type === 'file') innerContent = `<a href="${data.url}" target="_blank" class="text-blue-600 font-bold underline py-2 block text-xs">📎 Download File</a>`;
+
+            const time = data.created_at ? new Date(data.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const date = data.created_at ? new Date(data.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : new Date().toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+            wrapper.innerHTML = `
+                <div class="max-w-[85%] px-4 py-3 rounded-xl shadow-sm border relative ${isMe ? 'bg-[#002d72] text-white border-[#002d72] rounded-tr-none' : 'bg-white text-gray-800 border-gray-200 rounded-tl-none'}">
+                    <div class="text-[9px] font-bold uppercase ${isMe ? 'text-blue-200' : 'text-gray-400'} mb-1">${data.user}</div>
+                    ${innerContent}
+                    <div class="flex items-center justify-end gap-1 mt-2 opacity-60 text-[8px] font-bold">
+                        <span>${date} • ${time}</span>
+                        ${isMe ? '<span class="text-red-400 ml-0.5">✓✓</span>' : ''}
+                    </div>
+                </div>
+                <div class="msg-actions flex flex-col justify-center px-2 gap-2">
+                    <button onclick="setReply('${data.user}', '${(data.text || 'Media').replace(/'/g, "\\'")}')" class="p-1.5 bg-gray-100 rounded-full hover:bg-gray-200 text-gray-500 text-xs">⤴️</button>
+                    <button onclick="toggleEmojiPicker()" class="p-1.5 bg-gray-100 rounded-full hover:bg-gray-200 text-gray-500 text-xs">😊</button>
+                </div>
+            `;
+            msgList.appendChild(wrapper);
+            msgList.scrollTop = msgList.scrollHeight;
+        }
+
+        async function loadHistory() {
+            const { data } = await _supabase.from('messages').select('*').order('id', { ascending: true });
+            if(data) { msgList.innerHTML = ''; data.forEach(renderMessage); }
+            msgList.scrollTop = msgList.scrollHeight;
+        }
+
+        function initRealtime() {
+            _supabase.channel('messages').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, p => {
+                renderMessage(p.new);
+                showPushNotification(p.new);
+            })
+            .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, () => { 
+                msgList.innerHTML = '<p class="text-center text-gray-400 text-xs mt-10 italic">History cleared.</p>'; 
+            }).subscribe();
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                loadHistory();
+                _supabase.removeAllChannels();
+                initPresence();
+                initRealtime();
+            }
+        });
+
+        function wipeAndLogout() { if(confirm("Wipe all?")){ _supabase.from('messages').delete().neq('id',0).then(()=>{ localStorage.clear(); window.location.reload(); }); } }
+        
+        window.onload = () => { if (localStorage.getItem('chat_unlocked') === 'true') startApp(); };
+        msgInput.onkeydown = (e) => { if(e.key === "Enter") sendText(); };
+        document.getElementById('passInput').onkeydown = (e) => { if(e.key === "Enter") checkPassword(); };
+    </script>
+</body>
+</html>
