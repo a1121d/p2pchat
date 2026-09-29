@@ -203,13 +203,20 @@
 
         function toggleNotifications(enabled) {
             if (enabled) {
+                if (!("Notification" in window)) {
+                    alert("This browser does not support desktop notification");
+                    return;
+                }
                 Notification.requestPermission().then(permission => {
                     if (permission === "granted") {
                         notificationsEnabled = true;
                         localStorage.setItem('notif_enabled', 'true');
+                        // Test notification
+                        new Notification("OneAmerica", { body: "Alerts are now active." });
                     } else {
                         document.getElementById('notifToggle').checked = false;
-                        alert("Permission denied by browser.");
+                        notificationsEnabled = false;
+                        localStorage.setItem('notif_enabled', 'false');
                     }
                 });
             } else {
@@ -219,11 +226,17 @@
         }
 
         function showPushNotification(title, body) {
+            // Only show if enabled AND tab is hidden
             if (!notificationsEnabled || document.visibilityState === 'visible') return;
-            new Notification(title, {
-                body: body,
-                icon: 'https://cdn-icons-png.flaticon.com/512/733/733585.png'
-            });
+            
+            try {
+                const n = new Notification(title, {
+                    body: body,
+                    tag: 'oa-chat', // Prevents flooding by replacing old notifications
+                    silent: false
+                });
+                n.onclick = () => { window.focus(); n.close(); };
+            } catch (e) { console.error("Notification failed", e); }
         }
 
         const emojiList = ['😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🤭','🤫','🤥','😶','😐','😑','😬','🙄','😯','😦','😧','😮','😲','😧','🥱','😴','🤤','😪','😵','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','👹','👺','🤡','👻','💀','☠️','👽','👾','🤖','💩'];
