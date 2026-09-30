@@ -76,6 +76,9 @@
 </head>
 <body class="flex flex-col max-w-md mx-auto bg-white border-x shadow-2xl overflow-hidden">
 
+    <!-- Hidden Notification Sound -->
+    <audio id="notifSound" src="https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3" preload="auto"></audio>
+
     <div id="lockScreen" class="fixed inset-0 z-[100] bg-[#002d72] flex flex-col items-center justify-center p-6 text-white text-center">
         <div class="oa-logo w-24 h-24 mb-6">
             <svg viewBox="0 0 100 100" class="w-full h-full">
@@ -187,6 +190,7 @@
         const msgList = document.getElementById('msgList');
         const msgInput = document.getElementById('msgInput');
         const micBtn = document.getElementById('micBtn');
+        const notifSound = document.getElementById('notifSound');
         let user = localStorage.getItem('chat_user') || "";
         let replyingTo = null;
         let notificationsEnabled = localStorage.getItem('notif_enabled') === 'true';
@@ -201,48 +205,25 @@
             else document.body.classList.remove('dark-mode');
         }
 
-        async function toggleNotifications(enabled) {
+        function toggleNotifications(enabled) {
+            notificationsEnabled = enabled;
+            localStorage.setItem('notif_enabled', enabled);
             if (enabled) {
-                if (!("Notification" in window)) {
-                    alert("This browser does not support notifications.");
-                    return;
-                }
-                
-                const permission = await Notification.requestPermission();
-                if (permission === "granted") {
-                    notificationsEnabled = true;
-                    localStorage.setItem('notif_enabled', 'true');
-                    // Immediate visual confirmation
-                    new Notification("OneAmerica", { 
-                        body: "Alerts are now active.",
-                        requireInteraction: false
-                    });
-                } else {
-                    alert("Notification permission was denied. Please enable it in your browser settings.");
-                    document.getElementById('notifToggle').checked = false;
-                    notificationsEnabled = false;
-                    localStorage.setItem('notif_enabled', 'false');
-                }
-            } else {
-                notificationsEnabled = false;
-                localStorage.setItem('notif_enabled', 'false');
+                // Play a test sound to confirm and "unlock" audio in browser
+                notifSound.play().catch(e => console.log("Audio unlock required"));
             }
         }
 
-        function showPushNotification(title, body) {
-            // Only show if enabled AND tab is not active
-            if (!notificationsEnabled || document.visibilityState === 'visible') return;
+        function triggerAlert(title, body) {
+            if (!notificationsEnabled) return;
             
-            try {
-                const n = new Notification(title, {
-                    body: body,
-                    tag: 'oa-chat',
-                    renotify: true,
-                    silent: false
-                });
-                n.onclick = () => { window.focus(); n.close(); };
-            } catch (e) { 
-                console.warn("Notification failed (likely mobile background restriction):", e); 
+            // Play Sound
+            notifSound.currentTime = 0;
+            notifSound.play().catch(e => console.log("Audio blocked by browser"));
+
+            // Visual Notification (Fallback/Secondary)
+            if (document.visibilityState !== 'visible' && "Notification" in window && Notification.permission === "granted") {
+                new Notification(title, { body: body, tag: 'oa-chat' });
             }
         }
 
@@ -398,14 +379,14 @@
                 .on('presence', { event: 'join' }, ({ key, newPresences }) => {
                     if (key !== user) {
                         renderSystemMessage(`${key} joined the chat`);
-                        showPushNotification("OneAmerica", `${key} joined the chat`);
+                        triggerAlert("OneAmerica", `${key} joined the chat`);
                     }
                     updatePresenceUI();
                 })
                 .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
                     if (key !== user) {
                         renderSystemMessage(`${key} left the chat`);
-                        showPushNotification("OneAmerica", `${key} left the chat`);
+                        triggerAlert("OneAmerica", `${key} left the chat`);
                     }
                     updatePresenceUI();
                 })
@@ -479,7 +460,7 @@
             _supabase.channel('messages').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, p => {
                 renderMessage(p.new);
                 if (p.new.user !== user) {
-                    showPushNotification(`OneAmerica: ${p.new.user}`, p.new.text || "Sent a file/media");
+                    triggerAlert(`OneAmerica: ${p.new.user}`, p.new.text || "Sent a file/media");
                 }
             })
             .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, () => { 
